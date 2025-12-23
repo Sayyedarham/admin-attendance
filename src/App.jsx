@@ -2,570 +2,819 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import jsQR from 'jsqr';
 
+// --- CONFIGURATION ---
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-export default function EmployerApp() {
-  const [view, setView] = useState('home');
-  const [presentEmployees, setPresentEmployees] = useState([]);
-  const [message, setMessage] = useState({ text: '', type: '' });
-  const [loading, setLoading] = useState(false);
-  const [scanning, setScanning] = useState(false);
-  
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const streamRef = useRef(null);
-  const scanIntervalRef = useRef(null);
-
-  useEffect(() => {
-    if (view === 'attendance') {
-      loadTodayAttendance();
+// --- COMPONENT: HEADER WITH NAVIGATION ---
+const Header = ({ onLogout, googleSheetUrl = null }) => {
+  const styles = {
+    header: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: '20px 30px',
+      background: 'linear-gradient(to right, #1e1b4b, #312e81)',
+      borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+      color: 'white',
+    },
+    logoutBtn: {
+      padding: '10px 20px',
+      background: 'linear-gradient(to right, #ef4444, #dc2626)',
+      border: 'none',
+      borderRadius: '8px',
+      color: 'white',
+      fontWeight: 'bold',
+      cursor: 'pointer',
+      fontSize: '14px',
+      transition: 'all 0.3s ease',
+    },
+    title: {
+      fontSize: '24px',
+      fontWeight: 'bold',
+      margin: 0,
     }
-    return () => {
-      stopCamera();
-    };
-  }, [view]);
+  };
 
-  const loadTodayAttendance = async () => {
+  return (
+    <header style={styles.header}>
+      <button 
+        onClick={onLogout}
+        style={styles.logoutBtn}
+        onMouseEnter={(e) => e.target.style.opacity = '0.9'}
+        onMouseLeave={(e) => e.target.style.opacity = '1'}
+      >
+        Logout
+      </button>
+      <h1 style={styles.title}>IWM Attendance App</h1>
+      <div style={{ width: '120px' }}></div>
+    </header>
+  );
+};
+
+// --- COMPONENT: SIDEBAR NAVIGATION ---
+const Sidebar = ({ activeView, onViewChange, googleSheetUrl }) => {
+  const styles = {
+    sidebar: {
+      width: '250px',
+      background: 'linear-gradient(180deg, #312e81 0%, #1e1b4b 100%)',
+      padding: '30px 0',
+      borderRight: '1px solid rgba(255, 255, 255, 0.1)',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '10px',
+    },
+    navList: {
+      listStyle: 'none',
+      margin: 0,
+      padding: '0 15px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '10px',
+    },
+    navItem: {
+      margin: 0,
+    },
+    navButton: {
+      width: '100%',
+      padding: '14px 16px',
+      border: 'none',
+      borderRadius: '10px',
+      fontSize: '15px',
+      fontWeight: '600',
+      cursor: 'pointer',
+      transition: 'all 0.3s ease',
+      color: 'white',
+      textAlign: 'left',
+    },
+    navButtonActive: {
+      background: 'linear-gradient(to right, #6366f1, #8b5cf6)',
+      boxShadow: '0 4px 12px rgba(99, 102, 241, 0.4)',
+    },
+    navButtonInactive: {
+      background: 'rgba(255, 255, 255, 0.1)',
+      border: '1px solid rgba(255, 255, 255, 0.1)',
+    },
+    navLink: {
+      textDecoration: 'none',
+      color: 'inherit',
+      display: 'block',
+    }
+  };
+
+  return (
+    <aside style={styles.sidebar}>
+      <ul style={styles.navList}>
+        <li style={styles.navItem}>
+          <button
+            onClick={() => onViewChange('scanner')}
+            style={{
+              ...styles.navButton,
+              ...(activeView === 'scanner' ? styles.navButtonActive : styles.navButtonInactive),
+            }}
+            onMouseEnter={(e) => e.target.style.transform = 'translateX(4px)'}
+            onMouseLeave={(e) => e.target.style.transform = 'translateX(0)'}
+          >
+            📱 QR Scanner
+          </button>
+        </li>
+
+        <li style={styles.navItem}>
+          <button
+            onClick={() => onViewChange('history')}
+            style={{
+              ...styles.navButton,
+              ...(activeView === 'history' ? styles.navButtonActive : styles.navButtonInactive),
+            }}
+            onMouseEnter={(e) => e.target.style.transform = 'translateX(4px)'}
+            onMouseLeave={(e) => e.target.style.transform = 'translateX(0)'}
+          >
+            📋 Attendance History
+          </button>
+        </li>
+
+        <li style={styles.navItem}>
+          {googleSheetUrl ? (
+            <a
+              href={googleSheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                ...styles.navButton,
+                ...styles.navButtonInactive,
+                ...styles.navLink,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+                e.currentTarget.style.transform = 'translateX(4px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                e.currentTarget.style.transform = 'translateX(0)';
+              }}
+            >
+              📊 Google Sheet
+            </a>
+          ) : (
+            <button
+              disabled
+              style={{
+                ...styles.navButton,
+                ...styles.navButtonInactive,
+                opacity: 0.5,
+                cursor: 'not-allowed',
+              }}
+            >
+              📊 Google Sheet
+            </button>
+          )}
+        </li>
+      </ul>
+    </aside>
+  );
+};
+
+// --- COMPONENT: ANIMATED LOGIN SCREEN ---
+const LoginScreen = ({ onLogin }) => {
+  const [formData, setFormData] = useState({ username: '', password: '' });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
+  const [recoveredCreds, setRecoveredCreds] = useState(null);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
     setLoading(true);
-    const today = new Date().toISOString().split('T')[0];
-
+    setError('');
     try {
-      const { data: attendanceData, error: attendanceError } = await supabase
-        .from('attendance')
-        .select('employee_id')
-        .eq('date', today)
-        .eq('status', 'present');
+      const { data, error } = await supabase
+        .from('employers')
+        .select('*')
+        .eq('username', formData.username)
+        .eq('password', formData.password)
+        .single();
 
-      if (attendanceError) throw attendanceError;
-
-      if (attendanceData && attendanceData.length > 0) {
-        const employeeIds = attendanceData.map(a => a.employee_id);
-        
-        const { data: employeesData, error: employeesError } = await supabase
-          .from('employees')
-          .select('id, name')
-          .in('id', employeeIds);
-
-        if (employeesError) throw employeesError;
-        setPresentEmployees(employeesData || []);
-      } else {
-        setPresentEmployees([]);
-      }
+      if (error || !data) throw new Error('Invalid credentials');
+      onLogin(data);
     } catch (err) {
-      console.error('Error loading attendance:', err);
-      showMessage('Error loading attendance data', 'error');
+      setError('Invalid username or password');
+      setTimeout(() => setError(''), 3000);
     } finally {
       setLoading(false);
     }
   };
 
-const startCamera = async () => {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' }
-    });
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream;
-      streamRef.current = stream;
-      
-      // CRITICAL: Wait for video to actually load
-      videoRef.current.onloadedmetadata = () => {
-        videoRef.current.play()
-          .then(() => {
-            setScanning(true);
-            // Start scanning with a slight delay to ensure frame is ready
-            setTimeout(() => {
-              scanIntervalRef.current = setInterval(scanQR, 300);
-            }, 500);
-          })
-          .catch(err => console.error('Play error:', err));
-      };
-    }
-  } catch (err) {
-    console.error('Camera error:', err);
-    showMessage('Camera access denied', 'error');
-  }
-};
-
-
-  const stopCamera = () => {
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current);
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    setScanning(false);
-  };
-
-const scanQR = () => {
-  const video = videoRef.current;
-  const canvas = canvasRef.current;
-  
-  console.log('Scanning...', { video, canvas, scanning });
-  
-  if (!video || !canvas) {
-    console.log('Missing refs');
-    return;
-  }
-
-  const context = canvas.getContext('2d');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-
-  console.log('Canvas dimensions:', canvas.width, canvas.height);
-
-  if (canvas.width === 0 || canvas.height === 0) {
-    console.log('Video not ready yet');
-    return;
-  }
-
-  context.drawImage(video, 0, 0, canvas.width, canvas.height);
-  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-  const code = jsQR(imageData.data, imageData.width, imageData.height);
-
-  console.log('QR Result:', code);
-
-  if (code && code.data) {
-    console.log('QR DETECTED:', code.data);
-    handleQRDetected(code.data);
-  }
-};
-
-  const handleQRDetected = async (employeeId) => {
-    stopCamera();
-    setScanning(false);
-    
-    const today = new Date().toISOString().split('T')[0];
-
+  const handleRecover = async (e) => {
+    e.preventDefault();
+    setLoading(true);
     try {
-      const { data: employee, error: empError } = await supabase
-        .from('employees')
-        .select('id, name')
-        .eq('id', employeeId)
+      const { data, error } = await supabase
+        .from('employers')
+        .select('username, password')
+        .eq('username', formData.username)
         .single();
 
-      if (empError || !employee) {
-        showMessage('Invalid QR', 'error');
-        setTimeout(() => {
-          setMessage({ text: '', type: '' });
-          setView('home');
-        }, 2000);
-        return;
-      }
-
-      const { data: existing, error: checkError } = await supabase
-        .from('attendance')
-        .select('*')
-        .eq('employee_id', employeeId)
-        .eq('date', today)
-        .maybeSingle();
-
-      if (checkError && checkError.code !== 'PGRST116') throw checkError;
-
-      if (existing) {
-        showMessage('Already marked present today', 'warning');
-        setTimeout(() => {
-          setMessage({ text: '', type: '' });
-          setView('home');
-        }, 2000);
-        return;
-      }
-
-      const { error: insertError } = await supabase
-        .from('attendance')
-        .insert({
-          employee_id: employeeId,
-          date: today,
-          status: 'present'
-        });
-
-      if (insertError) throw insertError;
-
-      showMessage('Attendance marked successfully', 'success');
-      setTimeout(() => {
-        setMessage({ text: '', type: '' });
-        setView('home');
-      }, 2000);
+      if (error || !data) throw new Error('User not found');
+      setRecoveredCreds(data);
     } catch (err) {
-      console.error('Error marking attendance:', err);
-      showMessage('Error marking attendance', 'error');
-      setTimeout(() => {
-        setMessage({ text: '', type: '' });
-        setView('home');
-      }, 2000);
+      setError('Username not found');
+    } finally {
+      setLoading(false);
     }
-  };
-
-  const showMessage = (text, type) => {
-    setMessage({ text, type });
-  };
-
-  const formatDate = () => {
-    const today = new Date();
-    return today.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
   };
 
   const styles = {
     container: {
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #F3E8FF 0%, #E9D5FF 100%)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      padding: '16px'
+      background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      position: 'relative',
+      overflow: 'hidden',
     },
     card: {
-      backgroundColor: 'white',
-      borderRadius: '16px',
-      boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
-      padding: '32px',
+      background: 'rgba(255, 255, 255, 0.1)',
+      backdropFilter: 'blur(20px)',
+      padding: '40px',
+      borderRadius: '24px',
+      border: '1px solid rgba(255, 255, 255, 0.2)',
       width: '100%',
-      maxWidth: '448px'
+      maxWidth: '400px',
+      boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+      zIndex: 10,
     },
     title: {
-      fontSize: '36px',
+      color: 'white',
+      fontSize: '32px',
       fontWeight: 'bold',
-      color: '#7C3AED',
-      marginBottom: '8px',
-      textAlign: 'center'
+      textAlign: 'center',
+      marginBottom: '8px'
     },
     subtitle: {
-      color: '#6B7280',
+      color: '#94a3b8',
       textAlign: 'center',
-      marginBottom: '32px'
+      marginBottom: '32px',
+      fontSize: '14px'
+    },
+    inputGroup: {
+      position: 'relative',
+      marginBottom: '20px'
+    },
+    input: {
+      width: '100%',
+      padding: '16px',
+      background: 'rgba(0, 0, 0, 0.2)',
+      border: '1px solid rgba(255, 255, 255, 0.1)',
+      borderRadius: '12px',
+      color: 'white',
+      fontSize: '16px',
+      outline: 'none',
+      boxSizing: 'border-box'
     },
     button: {
       width: '100%',
-      backgroundColor: '#7C3AED',
-      color: 'white',
-      fontWeight: '600',
       padding: '16px',
-      borderRadius: '12px',
+      background: 'linear-gradient(to right, #6366f1, #8b5cf6)',
       border: 'none',
-      cursor: 'pointer',
+      borderRadius: '12px',
+      color: 'white',
       fontSize: '16px',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: '8px',
-      marginBottom: '16px',
-      transition: 'background-color 0.2s'
-    },
-    buttonSecondary: {
-      backgroundColor: '#2563EB'
-    },
-    dashContainer: {
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #F3E8FF 0%, #E9D5FF 100%)',
-      padding: '16px'
-    },
-    dashContent: {
-      maxWidth: '768px',
-      margin: '0 auto'
-    },
-    header: {
-      backgroundColor: 'white',
-      borderRadius: '16px',
-      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-      padding: '24px',
-      marginBottom: '24px'
-    },
-    backButton: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '16px',
-      marginBottom: '16px'
-    },
-    backIcon: {
-      padding: '8px',
-      backgroundColor: '#F3F4F6',
-      borderRadius: '8px',
-      border: 'none',
+      fontWeight: 'bold',
       cursor: 'pointer',
-      display: 'flex',
-      alignItems: 'center',
-      transition: 'background-color 0.2s'
+      marginTop: '10px'
     },
-    headerTitle: {
-      fontSize: '28px',
-      fontWeight: 'bold',
-      color: '#7C3AED'
-    },
-    headerSubtitle: {
+    link: {
+      color: '#818cf8',
       fontSize: '14px',
-      color: '#6B7280',
-      marginTop: '4px'
-    },
-    message: {
-      padding: '16px',
-      borderRadius: '12px',
       textAlign: 'center',
-      fontWeight: '600',
-      marginBottom: '16px'
+      display: 'block',
+      marginTop: '20px',
+      cursor: 'pointer'
     },
-    messageSuccess: {
-      backgroundColor: '#D1FAE5',
-      color: '#065F46'
-    },
-    messageError: {
-      backgroundColor: '#FEE2E2',
-      color: '#991B1B'
-    },
-    messageWarning: {
-      backgroundColor: '#FEF3C7',
-      color: '#92400E'
-    },
-    videoContainer: {
-      backgroundColor: '#000000',
-      borderRadius: '12px',
-      overflow: 'hidden',
-      position: 'relative',
-      width: '100%',
-      maxWidth: '640px',
-      margin: '0 auto'
-    },
-    video: {
-      width: '100%',
-      height: 'auto',
-      display: 'block'
-    },
-    canvas: {
-        display: 'none',
-        border: '1px solid red',
-        width: '100%',
-        marginTop: '16px'      
-    },
-    scanNote: {
+    error: {
+      color: '#f87171',
       textAlign: 'center',
-      color: '#6B7280',
-      marginTop: '16px',
+      marginTop: '10px',
       fontSize: '14px'
     },
-    attendanceCard: {
-      backgroundColor: 'white',
-      borderRadius: '16px',
-      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-      padding: '24px'
-    },
-    attendanceTitle: {
-      fontSize: '24px',
-      fontWeight: 'bold',
-      color: '#1F2937',
-      marginBottom: '16px'
-    },
-    noData: {
-      textAlign: 'center',
-      padding: '48px',
-      color: '#9CA3AF'
-    },
-    countBadge: {
-      padding: '12px',
-      backgroundColor: '#D1FAE5',
-      borderRadius: '12px',
-      marginBottom: '16px'
-    },
-    countText: {
-      textAlign: 'center',
-      color: '#065F46',
-      fontWeight: '600'
-    },
-    employeeItem: {
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: '16px',
-      backgroundColor: '#F9FAFB',
-      borderRadius: '12px',
-      marginBottom: '12px',
-      transition: 'background-color 0.2s'
-    },
-    employeeInfo: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '12px'
-    },
-    employeeNumber: {
-      width: '32px',
-      height: '32px',
-      backgroundColor: '#7C3AED',
-      color: 'white',
-      borderRadius: '9999px',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontWeight: '600',
-      fontSize: '14px'
-    },
-    employeeName: {
-      color: '#1F2937',
-      fontWeight: '500'
-    },
-    statusBadge: {
-      padding: '6px 12px',
-      backgroundColor: '#D1FAE5',
-      color: '#065F46',
-      borderRadius: '9999px',
-      fontSize: '12px',
-      fontWeight: '700'
-    }
   };
 
-  if (view === 'home') {
+  if (showForgot) {
     return (
       <div style={styles.container}>
         <div style={styles.card}>
-          <h1 style={styles.title}>Attendance App</h1>
-          <p style={styles.subtitle}>Employer Portal</p>
+          <h2 style={styles.title}>Recover Access</h2>
+          <p style={styles.subtitle}>Enter username to see password</p>
+          
+          {recoveredCreds ? (
+            <div>
+              <div style={styles.inputGroup}>
+                <label style={{ color: '#94a3b8', fontSize: '12px' }}>Username:</label>
+                <input
+                  type="text"
+                  value={recoveredCreds.username}
+                  disabled
+                  style={styles.input}
+                />
+              </div>
 
-          <button
-            style={styles.button}
-            onClick={() => {
-              setView('scanner');
-              setTimeout(startCamera, 100);
-            }}
-            onMouseOver={(e) => e.target.style.backgroundColor = '#6D28D9'}
-            onMouseOut={(e) => e.target.style.backgroundColor = '#7C3AED'}
-          >
-            <svg style={{ width: '24px', height: '24px' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-            </svg>
-            QR Scanner
-          </button>
+              <div style={styles.inputGroup}>
+                <label style={{ color: '#94a3b8', fontSize: '12px' }}>Password:</label>
+                <input
+                  type="text"
+                  value={recoveredCreds.password}
+                  disabled
+                  style={styles.input}
+                />
+              </div>
 
-          <button
-            style={{...styles.button, ...styles.buttonSecondary}}
-            onClick={() => setView('attendance')}
-            onMouseOver={(e) => e.target.style.backgroundColor = '#1D4ED8'}
-            onMouseOut={(e) => e.target.style.backgroundColor = '#2563EB'}
-          >
-            <svg style={{ width: '24px', height: '24px' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-            </svg>
-            Attendance History
-          </button>
-        </div>
-      </div>
-    );
-  }
+              {error && <div style={styles.error}>{error}</div>}
 
-  if (view === 'scanner') {
-    return (
-      <div style={styles.dashContainer}>
-        <div style={styles.dashContent}>
-          <div style={styles.header}>
-            <div style={styles.backButton}>
               <button
-                style={styles.backIcon}
-                onClick={() => {
-                  stopCamera();
-                  setView('home');
-                }}
-                onMouseOver={(e) => e.target.style.backgroundColor = '#E5E7EB'}
-                onMouseOut={(e) => e.target.style.backgroundColor = '#F3F4F6'}
+                onClick={() => setShowForgot(false)}
+                style={styles.button}
               >
-                <svg style={{ width: '24px', height: '24px', color: '#4B5563' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
+                Back to Login
               </button>
-              <h1 style={styles.headerTitle}>QR Scanner</h1>
             </div>
-
-            {message.text && (
-              <div style={{
-                ...styles.message,
-                ...(message.type === 'success' ? styles.messageSuccess :
-                    message.type === 'error' ? styles.messageError :
-                    styles.messageWarning)
-              }}>
-                {message.text}
+          ) : (
+            <form onSubmit={handleRecover}>
+              <div style={styles.inputGroup}>
+                <input
+                  type="text"
+                  placeholder="Username"
+                  value={formData.username}
+                  onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                  style={styles.input}
+                />
               </div>
-            )}
 
-            {!message.text && (
-              <>
-                <div style={styles.videoContainer}>
-                  <video ref={videoRef} style={styles.video} playsInline />
-                  <canvas ref={canvasRef} style={styles.canvas} />
-                </div>
-                <p style={styles.scanNote}>
-                  Position the QR code within the frame to scan
-                </p>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
+              {error && <div style={styles.error}>{error}</div>}
 
-  if (view === 'attendance') {
-    return (
-      <div style={styles.dashContainer}>
-        <div style={styles.dashContent}>
-          <div style={styles.attendanceCard}>
-            <div style={styles.backButton}>
+              <button type="submit" disabled={loading} style={styles.button}>
+                {loading ? 'Searching...' : 'Recover'}
+              </button>
+
               <button
-                style={styles.backIcon}
-                onClick={() => setView('home')}
-                onMouseOver={(e) => e.target.style.backgroundColor = '#E5E7EB'}
-                onMouseOut={(e) => e.target.style.backgroundColor = '#F3F4F6'}
+                type="button"
+                onClick={() => setShowForgot(false)}
+                style={{ ...styles.button, background: 'rgba(255, 255, 255, 0.1)', marginTop: '5px' }}
               >
-                <svg style={{ width: '24px', height: '24px', color: '#4B5563' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
+                Back to Login
               </button>
-              <div>
-                <h1 style={styles.attendanceTitle}>Today's Attendance</h1>
-                <p style={styles.headerSubtitle}>{formatDate()}</p>
-              </div>
-            </div>
-
-            {loading ? (
-              <div style={styles.noData}>
-                <p style={{ fontSize: '16px', fontWeight: '500' }}>Loading...</p>
-              </div>
-            ) : presentEmployees.length === 0 ? (
-              <div style={styles.noData}>
-                <p style={{ fontSize: '16px', fontWeight: '500' }}>No employees marked present today</p>
-              </div>
-            ) : (
-              <>
-                <div style={styles.countBadge}>
-                  <p style={styles.countText}>
-                    {presentEmployees.length} employee{presentEmployees.length !== 1 ? 's' : ''} present
-                  </p>
-                </div>
-                {presentEmployees.map((employee, index) => (
-                  <div
-                    key={employee.id}
-                    style={styles.employeeItem}
-                    onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
-                    onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#F9FAFB'}
-                  >
-                    <div style={styles.employeeInfo}>
-                      <div style={styles.employeeNumber}>{index + 1}</div>
-                      <span style={styles.employeeName}>{employee.name}</span>
-                    </div>
-                    <span style={styles.statusBadge}>PRESENT</span>
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
+            </form>
+          )}
         </div>
       </div>
     );
   }
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.card}>
+        <h2 style={styles.title}>Employer Portal</h2>
+        <p style={styles.subtitle}>Secure Access</p>
+
+        <form onSubmit={handleLogin}>
+          <div style={styles.inputGroup}>
+            <input
+              type="text"
+              placeholder="Username"
+              value={formData.username}
+              onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+              style={styles.input}
+            />
+          </div>
+
+          <div style={styles.inputGroup}>
+            <input
+              type={showPassword ? 'text' : 'password'}
+              placeholder="Password"
+              value={formData.password}
+              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              style={styles.input}
+            />
+          </div>
+
+          {error && <div style={styles.error}>{error}</div>}
+
+          <button type="submit" disabled={loading} style={styles.button}>
+            {loading ? 'Logging in...' : 'Login'}
+          </button>
+        </form>
+
+        <button
+          onClick={() => setShowForgot(true)}
+          style={styles.link}
+        >
+          Forgot Password?
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// --- COMPONENT: QR CAMERA SCANNER ---
+const QRScanner = ({ employer }) => {
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const [scannedData, setScannedData] = useState(null);
+  const [presentEmployees, setPresentEmployees] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const formatDate = () => {
+    return new Date().toLocaleDateString('en-IN', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  };
+
+  useEffect(() => {
+    const startCamera = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+        });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      } catch (err) {
+        console.error('Camera error:', err);
+      }
+    };
+
+    const scanFrame = () => {
+      if (videoRef.current && canvasRef.current) {
+        const context = canvasRef.current.getContext('2d');
+        const video = videoRef.current;
+
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+          canvasRef.current.width = video.videoWidth;
+          canvasRef.current.height = video.videoHeight;
+          context.drawImage(video, 0, 0);
+
+          const imageData = context.getImageData(
+            0,
+            0,
+            canvasRef.current.width,
+            canvasRef.current.height
+          );
+          const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+          if (code) {
+            handleQRScan(code.data);
+          }
+        }
+      }
+      requestAnimationFrame(scanFrame);
+    };
+
+    startCamera();
+    scanFrame();
+
+    return () => {
+      if (videoRef.current?.srcObject) {
+        videoRef.current.srcObject.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
+
+  const handleQRScan = async (qrData) => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('employees')
+        .select('*')
+        .eq('qr_code', qrData)
+        .eq('employer_id', employer.id)
+        .single();
+
+      if (error || !data) {
+        setScannedData({ error: 'Employee not found' });
+        setTimeout(() => setScannedData(null), 3000);
+        return;
+      }
+
+      const today = new Date().toISOString().split('T')[0];
+      const { error: insertError } = await supabase
+        .from('attendance')
+        .insert([
+          {
+            employee_id: data.id,
+            employer_id: employer.id,
+            date: today,
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+
+      if (!insertError) {
+        setScannedData(data);
+        setPresentEmployees([...presentEmployees, data]);
+        setTimeout(() => setScannedData(null), 2000);
+      }
+    } catch (err) {
+      setScannedData({ error: 'Error processing attendance' });
+      setTimeout(() => setScannedData(null), 3000);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const styles = {
+    container: {
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+      padding: '30px',
+      background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+      overflowY: 'auto',
+    },
+    scanner: {
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '20px',
+    },
+    header: {
+      color: '#1e1b4b',
+      fontSize: '24px',
+      fontWeight: 'bold',
+      marginBottom: '20px',
+    },
+    videoContainer: {
+      position: 'relative',
+      width: '100%',
+      maxWidth: '500px',
+      margin: '0 auto',
+      borderRadius: '16px',
+      overflow: 'hidden',
+      boxShadow: '0 10px 30px rgba(0, 0, 0, 0.2)',
+    },
+    video: {
+      width: '100%',
+      display: 'block',
+    },
+    overlayText: {
+      position: 'absolute',
+      top: '20px',
+      left: '20px',
+      color: 'white',
+      fontSize: '14px',
+      background: 'rgba(0, 0, 0, 0.5)',
+      padding: '10px 15px',
+      borderRadius: '8px',
+      backdropFilter: 'blur(10px)',
+    },
+    statusSection: {
+      background: 'white',
+      padding: '20px',
+      borderRadius: '12px',
+      boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+    },
+    statusTitle: {
+      fontSize: '16px',
+      fontWeight: 'bold',
+      color: '#1e1b4b',
+      marginBottom: '15px',
+    },
+    employeeList: {
+      listStyle: 'none',
+      padding: 0,
+      margin: 0,
+    },
+    employeeItem: {
+      padding: '12px',
+      background: '#f0f4f8',
+      borderLeft: '4px solid #6366f1',
+      marginBottom: '10px',
+      borderRadius: '6px',
+      fontSize: '14px',
+      color: '#1e1b4b',
+    },
+    emptyMessage: {
+      color: '#718096',
+      fontStyle: 'italic',
+      fontSize: '14px',
+    }
+  };
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.scanner}>
+        <div style={styles.header}>{formatDate()}</div>
+
+        <div style={styles.videoContainer}>
+          <video
+            ref={videoRef}
+            style={styles.video}
+            autoPlay
+            playsInline
+          />
+          <div style={styles.overlayText}>
+            Position the QR code within the frame to scan
+          </div>
+          <canvas ref={canvasRef} style={{ display: 'none' }} />
+        </div>
+
+        {scannedData && !scannedData.error && (
+          <div style={{
+            ...styles.statusSection,
+            background: '#d1fae5',
+            borderLeft: '4px solid #10b981',
+          }}>
+            <div style={{ color: '#065f46', fontWeight: 'bold' }}>
+              ✓ {scannedData.name} marked present!
+            </div>
+          </div>
+        )}
+
+        {scannedData?.error && (
+          <div style={{
+            ...styles.statusSection,
+            background: '#fee2e2',
+            borderLeft: '4px solid #ef4444',
+          }}>
+            <div style={{ color: '#7f1d1d', fontWeight: 'bold' }}>
+              ✗ {scannedData.error}
+            </div>
+          </div>
+        )}
+
+        <div style={styles.statusSection}>
+          <div style={styles.statusTitle}>
+            {presentEmployees.length === 0
+              ? 'No employees marked present today'
+              : `${presentEmployees.length} employee${presentEmployees.length !== 1 ? 's' : ''} present`}
+          </div>
+          {presentEmployees.length > 0 && (
+            <ul style={styles.employeeList}>
+              {presentEmployees.map((emp, idx) => (
+                <li key={idx} style={styles.employeeItem}>
+                  {emp.name}
+                </li>
+              ))}
+            </ul>
+          )}
+          {presentEmployees.length === 0 && (
+            <p style={styles.emptyMessage}>Scan QR codes to mark employees present</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- COMPONENT: ATTENDANCE HISTORY ---
+const AttendanceHistory = ({ employer }) => {
+  const [historyData, setHistoryData] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('attendance')
+          .select('employee_id, date, timestamp, employees(name)')
+          .eq('employer_id', employer.id)
+          .order('date', { ascending: false })
+          .order('timestamp', { ascending: false });
+
+        if (!error && data) {
+          setHistoryData(data);
+        }
+      } catch (err) {
+        console.error('Error fetching history:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchHistory();
+  }, [employer.id]);
+
+  const styles = {
+    container: {
+      flex: 1,
+      padding: '30px',
+      background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+      overflowY: 'auto',
+    },
+    title: {
+      color: '#1e1b4b',
+      fontSize: '24px',
+      fontWeight: 'bold',
+      marginBottom: '20px',
+    },
+    table: {
+      width: '100%',
+      borderCollapse: 'collapse',
+      background: 'white',
+      borderRadius: '12px',
+      overflow: 'hidden',
+      boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+    },
+    th: {
+      padding: '15px',
+      background: 'linear-gradient(to right, #6366f1, #8b5cf6)',
+      color: 'white',
+      textAlign: 'left',
+      fontWeight: 'bold',
+    },
+    td: {
+      padding: '12px 15px',
+      borderBottom: '1px solid #e5e7eb',
+      color: '#1e1b4b',
+    },
+    emptyMessage: {
+      textAlign: 'center',
+      padding: '40px',
+      color: '#718096',
+      fontSize: '16px',
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.title}>Attendance History</div>
+        <div style={styles.emptyMessage}>Loading...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.title}>Attendance History</div>
+      {historyData.length === 0 ? (
+        <div style={styles.emptyMessage}>No attendance records found</div>
+      ) : (
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Employee Name</th>
+              <th style={styles.th}>Date</th>
+              <th style={styles.th}>Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {historyData.map((record, idx) => (
+              <tr key={idx}>
+                <td style={styles.td}>{record.employees?.name || 'Unknown'}</td>
+                <td style={styles.td}>{record.date}</td>
+                <td style={styles.td}>
+                  {new Date(record.timestamp).toLocaleTimeString('en-IN')}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+};
+
+// --- MAIN APP COMPONENT ---
+export default function App() {
+  const [employer, setEmployer] = useState(null);
+  const [activeView, setActiveView] = useState('scanner');
+  const [googleSheetUrl, setGoogleSheetUrl] = useState(null);
+
+  // You can set the Google Sheet URL here or load it from an environment variable
+  // Example: const googleSheetUrl = import.meta.env.VITE_GOOGLE_SHEET_URL;
+
+  const handleLogout = () => {
+    setEmployer(null);
+    setActiveView('scanner');
+  };
+
+  if (!employer) {
+    return <LoginScreen onLogin={setEmployer} />;
+  }
+
+  return (
+    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+      {/* Header */}
+      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100 }}>
+        <Header onLogout={handleLogout} googleSheetUrl={googleSheetUrl} />
+      </div>
+
+      {/* Main Layout with Sidebar */}
+      <div style={{ display: 'flex', marginTop: '70px', width: '100%' }}>
+        <Sidebar activeView={activeView} onViewChange={setActiveView} googleSheetUrl={googleSheetUrl} />
+
+        {/* Main Content */}
+        <div style={{ flex: 1 }}>
+          {activeView === 'scanner' && <QRScanner employer={employer} />}
+          {activeView === 'history' && <AttendanceHistory employer={employer} />}
+        </div>
+      </div>
+    </div>
+  );
 }
