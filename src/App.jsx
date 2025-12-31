@@ -452,7 +452,7 @@ const QRScanner = ({ employer }) => {
 
     const scanFrame = () => {
       if (videoRef.current && canvasRef.current) {
-        const context = canvasRef.current.getContext('2d');
+        const context = canvasRef.current.getContext('2d', { willReadFrequently: true });
         const video = videoRef.current;
 
         if (video.readyState === video.HAVE_ENOUGH_DATA) {
@@ -492,8 +492,7 @@ const QRScanner = ({ employer }) => {
       const { data, error } = await supabase
         .from('employees')
         .select('*')
-        .eq('qr_code', qrData)
-        .eq('employer_id', employer.id)
+        .eq('qr_code_url', qrData)
         .single();
 
       if (error || !data) {
@@ -503,16 +502,16 @@ const QRScanner = ({ employer }) => {
       }
 
       const today = new Date().toISOString().split('T')[0];
-      const { error: insertError } = await supabase
-        .from('attendance')
-        .insert([
-          {
-            employee_id: data.id,
-            employer_id: employer.id,
-            date: today,
-            timestamp: new Date().toISOString(),
-          },
-        ]);
+        const { error: insertError } = await supabase
+          .from('attendance')
+          .insert([
+            {
+              employee_id: data.id,
+              date: today,
+              status: 'present',
+              created_at: new Date().toISOString(),
+            },
+          ]);
 
       if (!insertError) {
         setScannedData(data);
@@ -679,12 +678,11 @@ const AttendanceHistory = ({ employer }) => {
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const { data, error } = await supabase
-          .from('attendance')
-          .select('employee_id, date, timestamp, employees(name)')
-          .eq('employer_id', employer.id)
-          .order('date', { ascending: false })
-          .order('timestamp', { ascending: false });
+          const { data, error } = await supabase
+            .from('attendance')
+            .select('employee_id, date, status, created_at, employees(name, department)')
+            .order('date', { ascending: false })
+            .order('created_at', { ascending: false });
 
         if (!error && data) {
           setHistoryData(data);
@@ -769,7 +767,7 @@ const AttendanceHistory = ({ employer }) => {
                 <td style={styles.td}>{record.employees?.name || 'Unknown'}</td>
                 <td style={styles.td}>{record.date}</td>
                 <td style={styles.td}>
-                  {new Date(record.timestamp).toLocaleTimeString('en-IN')}
+                  {new Date(record.created_at).toLocaleTimeString('en-IN')}
                 </td>
               </tr>
             ))}
